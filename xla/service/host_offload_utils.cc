@@ -276,5 +276,31 @@ bool ComputeTypeIsHost(const HloInstruction* hlo_instruction) {
               kXlaComputeTypeHost);
 }
 
+void SetHostComputeFrontendAttribute(HloInstruction& host_instruction) {
+  FrontendAttributes frontend_attributes =
+      host_instruction.frontend_attributes();
+  frontend_attributes.mutable_map()->insert(
+      {kXlaComputeTypeAttr, kXlaComputeTypeHost});
+  host_instruction.set_frontend_attributes(frontend_attributes);
+}
+
+void RemoveHostComputeFrontendAttribute(HloInstruction& host_instruction) {
+  FrontendAttributes frontend_attributes =
+      host_instruction.frontend_attributes();
+  auto* frontend_attributes_map = frontend_attributes.mutable_map();
+  auto it = frontend_attributes_map->find(kXlaComputeTypeAttr);
+  if (it == frontend_attributes_map->end()) {
+    // No ComputeType attribute.
+    return;
+  }
+  if (it->second != kXlaComputeTypeHost) {
+    // ComputeType is not host.
+    return;
+  }
+  // This is the ComputeType attribute we're looking for.
+  frontend_attributes_map->erase(it);
+  host_instruction.set_frontend_attributes(frontend_attributes);
+}
+
 }  // namespace host_offload_utils
 }  // namespace xla
