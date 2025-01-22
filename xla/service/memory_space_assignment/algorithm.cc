@@ -5245,7 +5245,18 @@ AllocationResult MsaAlgorithm::WindowPrefetch(
     AllocationRequest window_prefetch_request = request;
     window_prefetch_request.window_prefetch_options = &options;
     window_prefetch_request.size = window.size();
-    const Shape shape = ShapeUtil::MakeShape(U8, {window.size()});
+    // We want to keep the allocation of window prefetch buffers to be as short
+    // as possible in time. This keeps the window prefetch's impact on other
+    // tensor's prefetch and eviction to be minimal. So we set the earliest
+    // prefetch time as late as possible. Because the earliest_prefetch_time is
+    // exclusive, so it is set to end_time - 2.
+    window_prefetch_request.earliest_prefetch_time =
+        window_prefetch_request.end_time - 2;
+    // Using a non-empty shape would consume copy resources, which would
+    // interfere with the prefetching of other tensors. So far, we are not
+    // actually prefetching anything, so use empty shape to specify zero
+    // resource consumption.
+    const Shape shape = ShapeUtil::MakeShape(U8, {});
     Prefetch(window_prefetch_request, prev_allocation_in_default_mem, &shape);
   }
   return AllocationResult::kSuccess;
