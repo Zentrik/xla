@@ -1,126 +1,188 @@
 Auto generated patch. Do not edit or delete it, even if empty.
-diff -ruN --strip-trailing-cr a/llvm/utils/gn/secondary/llvm/lib/Support/BUILD.gn b/llvm/utils/gn/secondary/llvm/lib/Support/BUILD.gn
---- a/llvm/utils/gn/secondary/llvm/lib/Support/BUILD.gn
-+++ b/llvm/utils/gn/secondary/llvm/lib/Support/BUILD.gn
-@@ -33,7 +33,7 @@
-     "Windows",
-   ]
-   sources = [
--    "AArch64BuildAttributes.cpp"
-+    "AArch64BuildAttributes.cpp",
-     "ABIBreak.cpp",
-     "AMDGPUMetadata.cpp",
-     "APFixedPoint.cpp",
-@@ -42,7 +42,6 @@
-     "APSInt.cpp",
-     "ARMAttributeParser.cpp",
-     "ARMBuildAttrs.cpp",
--    "AArch64BuildAttributes.cpp",
-     "ARMWinEH.cpp",
-     "Allocator.cpp",
-     "AutoConvert.cpp",
-diff -ruN --strip-trailing-cr a/utils/bazel/llvm-project-overlay/mlir/BUILD.bazel b/utils/bazel/llvm-project-overlay/mlir/BUILD.bazel
---- a/utils/bazel/llvm-project-overlay/mlir/BUILD.bazel
-+++ b/utils/bazel/llvm-project-overlay/mlir/BUILD.bazel
-@@ -5545,10 +5545,26 @@
+diff -ruN --strip-trailing-cr a/llvm/lib/Transforms/InstCombine/InstCombineSelect.cpp b/llvm/lib/Transforms/InstCombine/InstCombineSelect.cpp
+--- a/llvm/lib/Transforms/InstCombine/InstCombineSelect.cpp
++++ b/llvm/lib/Transforms/InstCombine/InstCombineSelect.cpp
+@@ -428,10 +428,10 @@
+     CmpPredicate TPred, FPred;
+     if (match(TI, m_ICmp(TPred, m_Value(), m_Value())) &&
+         match(FI, m_ICmp(FPred, m_Value(), m_Value()))) {
+-      bool Swapped = ICmpInst::isRelational(FPred) &&
+-                     CmpPredicate::getMatching(
+-                         TPred, ICmpInst::getSwappedCmpPredicate(FPred));
+-      if (CmpPredicate::getMatching(TPred, FPred) || Swapped) {
++      // FIXME: Use CmpPredicate::getMatching here.
++      CmpInst::Predicate T = TPred, F = FPred;
++      if (T == F || T == ICmpInst::getSwappedCmpPredicate(F)) {
++        bool Swapped = T != F;
+         if (Value *MatchOp =
+                 getCommonOp(TI, FI, ICmpInst::isEquality(TPred), Swapped)) {
+           Value *NewSel = Builder.CreateSelect(Cond, OtherOpT, OtherOpF,
+diff -ruN --strip-trailing-cr a/llvm/test/Transforms/InstCombine/select-cmp.ll b/llvm/test/Transforms/InstCombine/select-cmp.ll
+--- a/llvm/test/Transforms/InstCombine/select-cmp.ll
++++ b/llvm/test/Transforms/InstCombine/select-cmp.ll
+@@ -23,18 +23,6 @@
+   ret i1 %r
+ }
  
- cc_library(
-     name = "LLVMIRTransforms",
--    srcs = glob([
--        "lib/Dialect/LLVMIR/Transforms/*.cpp",
--    ]),
--    hdrs = glob(["include/mlir/Dialect/LLVMIR/Transforms/*.h"]),
-+    srcs = glob(
-+        [
-+            "lib/Dialect/LLVMIR/Transforms/*.cpp",
-+        ],
-+        exclude = [
-+            "lib/Dialect/LLVMIR/Transforms/DIExpressionLegalization.cpp",
-+            "lib/Dialect/LLVMIR/Transforms/DIExpressionRewriter.cpp",
-+            "lib/Dialect/LLVMIR/Transforms/LegalizeForExport.cpp",
-+        ],
-+    ),
-+    hdrs = glob(
-+        [
-+            "include/mlir/Dialect/LLVMIR/Transforms/*.h",
-+        ],
-+        exclude = [
-+            "include/mlir/Dialect/LLVMIR/Transforms/DIExpressionLegalization.h",
-+            "include/mlir/Dialect/LLVMIR/Transforms/DIExpressionRewriter.h",
-+            "include/mlir/Dialect/LLVMIR/Transforms/LegalizeForExport.h",
-+        ],
-+    ),
-     includes = ["include"],
-     deps = [
-         ":Analysis",
-@@ -5557,6 +5573,7 @@
-         ":IR",
-         ":InliningUtils",
-         ":LLVMDialect",
-+        ":LLVMIRTransformsLegalizeForExport",
-         ":LLVMPassIncGen",
-         ":NVVMDialect",
-         ":Pass",
-@@ -5567,6 +5584,43 @@
+-define i1 @icmp_ne_samesign_common(i1 %c, i6 %x, i6 %y, i6 %z) {
+-; CHECK-LABEL: @icmp_ne_samesign_common(
+-; CHECK-NEXT:    [[R_V:%.*]] = select i1 [[C:%.*]], i6 [[Y:%.*]], i6 [[Z:%.*]]
+-; CHECK-NEXT:    [[R:%.*]] = icmp ne i6 [[X:%.*]], [[R_V]]
+-; CHECK-NEXT:    ret i1 [[R]]
+-;
+-  %cmp1 = icmp samesign ne i6 %x, %y
+-  %cmp2 = icmp ne i6 %x, %z
+-  %r = select i1 %c, i1 %cmp1, i1 %cmp2
+-  ret i1 %r
+-}
+-
+ define i1 @icmp_ne_common_op01(i1 %c, i3 %x, i3 %y, i3 %z) {
+ ; CHECK-LABEL: @icmp_ne_common_op01(
+ ; CHECK-NEXT:    [[R_V:%.*]] = select i1 [[C:%.*]], i3 [[Y:%.*]], i3 [[Z:%.*]]
+@@ -83,18 +71,6 @@
+   ret i1 %r
+ }
+ 
+-define i1 @icmp_eq_samesign_common(i1 %c, i5 %x, i5 %y, i5 %z) {
+-; CHECK-LABEL: @icmp_eq_samesign_common(
+-; CHECK-NEXT:    [[R_V:%.*]] = select i1 [[C:%.*]], i5 [[Y:%.*]], i5 [[Z:%.*]]
+-; CHECK-NEXT:    [[R:%.*]] = icmp eq i5 [[X:%.*]], [[R_V]]
+-; CHECK-NEXT:    ret i1 [[R]]
+-;
+-  %cmp1 = icmp eq i5 %x, %y
+-  %cmp2 = icmp samesign eq i5 %x, %z
+-  %r = select i1 %c, i1 %cmp1, i1 %cmp2
+-  ret i1 %r
+-}
+-
+ define <5 x i1> @icmp_eq_common_op01(<5 x i1> %c, <5 x i7> %x, <5 x i7> %y, <5 x i7> %z) {
+ ; CHECK-LABEL: @icmp_eq_common_op01(
+ ; CHECK-NEXT:    [[R_V:%.*]] = select <5 x i1> [[C:%.*]], <5 x i7> [[Y:%.*]], <5 x i7> [[Z:%.*]]
+@@ -158,18 +134,6 @@
+   ret i1 %r
+ }
+ 
+-define i1 @icmp_slt_samesign_common(i1 %c, i6 %x, i6 %y, i6 %z) {
+-; CHECK-LABEL: @icmp_slt_samesign_common(
+-; CHECK-NEXT:    [[R_V:%.*]] = select i1 [[C:%.*]], i6 [[Y:%.*]], i6 [[Z:%.*]]
+-; CHECK-NEXT:    [[R:%.*]] = icmp ult i6 [[X:%.*]], [[R_V]]
+-; CHECK-NEXT:    ret i1 [[R]]
+-;
+-  %cmp1 = icmp samesign ult i6 %x, %y
+-  %cmp2 = icmp slt i6 %x, %z
+-  %r = select i1 %c, i1 %cmp1, i1 %cmp2
+-  ret i1 %r
+-}
+-
+ define i1 @icmp_sgt_common(i1 %c, i6 %x, i6 %y, i6 %z) {
+ ; CHECK-LABEL: @icmp_sgt_common(
+ ; CHECK-NEXT:    [[R_V:%.*]] = select i1 [[C:%.*]], i6 [[Y:%.*]], i6 [[Z:%.*]]
+@@ -182,18 +146,6 @@
+   ret i1 %r
+ }
+ 
+-define i1 @icmp_sgt_samesign_common(i1 %c, i6 %x, i6 %y, i6 %z) {
+-; CHECK-LABEL: @icmp_sgt_samesign_common(
+-; CHECK-NEXT:    [[R_V:%.*]] = select i1 [[C:%.*]], i6 [[Y:%.*]], i6 [[Z:%.*]]
+-; CHECK-NEXT:    [[R:%.*]] = icmp ugt i6 [[X:%.*]], [[R_V]]
+-; CHECK-NEXT:    ret i1 [[R]]
+-;
+-  %cmp1 = icmp samesign ugt i6 %x, %y
+-  %cmp2 = icmp sgt i6 %x, %z
+-  %r = select i1 %c, i1 %cmp1, i1 %cmp2
+-  ret i1 %r
+-}
+-
+ define i1 @icmp_sle_common(i1 %c, i6 %x, i6 %y, i6 %z) {
+ ; CHECK-LABEL: @icmp_sle_common(
+ ; CHECK-NEXT:    [[R_V:%.*]] = select i1 [[C:%.*]], i6 [[Y:%.*]], i6 [[Z:%.*]]
+@@ -206,18 +158,6 @@
+   ret i1 %r
+ }
+ 
+-define i1 @icmp_sle_samesign_common(i1 %c, i6 %x, i6 %y, i6 %z) {
+-; CHECK-LABEL: @icmp_sle_samesign_common(
+-; CHECK-NEXT:    [[R_V:%.*]] = select i1 [[C:%.*]], i6 [[Y:%.*]], i6 [[Z:%.*]]
+-; CHECK-NEXT:    [[R:%.*]] = icmp sge i6 [[X:%.*]], [[R_V]]
+-; CHECK-NEXT:    ret i1 [[R]]
+-;
+-  %cmp1 = icmp sle i6 %y, %x
+-  %cmp2 = icmp samesign ule i6 %z, %x
+-  %r = select i1 %c, i1 %cmp1, i1 %cmp2
+-  ret i1 %r
+-}
+-
+ define i1 @icmp_sge_common(i1 %c, i6 %x, i6 %y, i6 %z) {
+ ; CHECK-LABEL: @icmp_sge_common(
+ ; CHECK-NEXT:    [[R_V:%.*]] = select i1 [[C:%.*]], i6 [[Y:%.*]], i6 [[Z:%.*]]
+@@ -230,18 +170,6 @@
+   ret i1 %r
+ }
+ 
+-define i1 @icmp_sge_samesign_common(i1 %c, i6 %x, i6 %y, i6 %z) {
+-; CHECK-LABEL: @icmp_sge_samesign_common(
+-; CHECK-NEXT:    [[R_V:%.*]] = select i1 [[C:%.*]], i6 [[Y:%.*]], i6 [[Z:%.*]]
+-; CHECK-NEXT:    [[R:%.*]] = icmp sle i6 [[X:%.*]], [[R_V]]
+-; CHECK-NEXT:    ret i1 [[R]]
+-;
+-  %cmp1 = icmp sge i6 %y, %x
+-  %cmp2 = icmp samesign uge i6 %z, %x
+-  %r = select i1 %c, i1 %cmp1, i1 %cmp2
+-  ret i1 %r
+-}
+-
+ define i1 @icmp_slt_sgt_common(i1 %c, i6 %x, i6 %y, i6 %z) {
+ ; CHECK-LABEL: @icmp_slt_sgt_common(
+ ; CHECK-NEXT:    [[R_V:%.*]] = select i1 [[C:%.*]], i6 [[Y:%.*]], i6 [[Z:%.*]]
+@@ -254,18 +182,6 @@
+   ret i1 %r
+ }
+ 
+-define i1 @icmp_slt_sgt_samesign_common(i1 %c, i6 %x, i6 %y, i6 %z) {
+-; CHECK-LABEL: @icmp_slt_sgt_samesign_common(
+-; CHECK-NEXT:    [[R_V:%.*]] = select i1 [[C:%.*]], i6 [[Y:%.*]], i6 [[Z:%.*]]
+-; CHECK-NEXT:    [[R:%.*]] = icmp ult i6 [[X:%.*]], [[R_V]]
+-; CHECK-NEXT:    ret i1 [[R]]
+-;
+-  %cmp1 = icmp samesign ult i6 %x, %y
+-  %cmp2 = icmp sgt i6 %z, %x
+-  %r = select i1 %c, i1 %cmp1, i1 %cmp2
+-  ret i1 %r
+-}
+-
+ define i1 @icmp_sle_sge_common(i1 %c, i6 %x, i6 %y, i6 %z) {
+ ; CHECK-LABEL: @icmp_sle_sge_common(
+ ; CHECK-NEXT:    [[R_V:%.*]] = select i1 [[C:%.*]], i6 [[Y:%.*]], i6 [[Z:%.*]]
+@@ -277,18 +193,6 @@
+   %r = select i1 %c, i1 %cmp1, i1 %cmp2
+   ret i1 %r
+ }
+-
+-define i1 @icmp_sle_sge_samesign_common(i1 %c, i6 %x, i6 %y, i6 %z) {
+-; CHECK-LABEL: @icmp_sle_sge_samesign_common(
+-; CHECK-NEXT:    [[R_V:%.*]] = select i1 [[C:%.*]], i6 [[Y:%.*]], i6 [[Z:%.*]]
+-; CHECK-NEXT:    [[R:%.*]] = icmp sge i6 [[X:%.*]], [[R_V]]
+-; CHECK-NEXT:    ret i1 [[R]]
+-;
+-  %cmp1 = icmp sle i6 %y, %x
+-  %cmp2 = icmp samesign uge i6 %x, %z
+-  %r = select i1 %c, i1 %cmp1, i1 %cmp2
+-  ret i1 %r
+-}
+ 
+ define i1 @icmp_ult_common(i1 %c, i6 %x, i6 %y, i6 %z) {
+ ; CHECK-LABEL: @icmp_ult_common(
+diff -ruN --strip-trailing-cr a/utils/bazel/llvm-project-overlay/clang/BUILD.bazel b/utils/bazel/llvm-project-overlay/clang/BUILD.bazel
+--- a/utils/bazel/llvm-project-overlay/clang/BUILD.bazel
++++ b/utils/bazel/llvm-project-overlay/clang/BUILD.bazel
+@@ -584,6 +584,10 @@
+             "-gen-clang-regular-keyword-attr-info",
+             "include/clang/Basic/RegularKeywordAttrInfo.inc",
+         ),
++        (
++            "-gen-cxx11-attribute-info",
++            "include/clang/Basic/CXX11AttributeInfo.inc",
++        ),
      ],
- )
- 
-+cc_library(
-+    name = "LLVMIRTransformsLegalizeForExport",
-+    srcs = ["lib/Dialect/LLVMIR/Transforms/LegalizeForExport.cpp"],
-+    hdrs = ["include/mlir/Dialect/LLVMIR/Transforms/LegalizeForExport.h"],
-+    includes = ["include"],
-+    deps = [
-+        ":IR",
-+        ":LLVMDialect",
-+        ":LLVMPassIncGen",
-+        ":LLVMIRTransformsDIExpressionLegalization",
-+        ":Pass",
-+    ],
-+)
-+
-+cc_library(
-+    name = "LLVMIRTransformsDIExpressionLegalization",
-+    srcs = ["lib/Dialect/LLVMIR/Transforms/DIExpressionLegalization.cpp"],
-+    hdrs = ["include/mlir/Dialect/LLVMIR/Transforms/DIExpressionLegalization.h"],
-+    includes = ["include"],
-+    deps = [
-+        ":LLVMIRTransformsDIExpressionRewriter",
-+        "//llvm:BinaryFormat",
-+    ],
-+)
-+
-+cc_library(
-+    name = "LLVMIRTransformsDIExpressionRewriter",
-+    srcs = ["lib/Dialect/LLVMIR/Transforms/DIExpressionRewriter.cpp"],
-+    hdrs = ["include/mlir/Dialect/LLVMIR/Transforms/DIExpressionRewriter.h"],
-+    includes = ["include"],
-+    deps = [
-+        ":LLVMDialect",
-+        ":TransformUtils",
-+        "//llvm:Support",
-+    ],
-+)
-+
- td_library(
-     name = "GPUOpsTdFiles",
-     srcs = [
-@@ -6459,6 +6513,7 @@
-         ":NVVMOpsIncGen",
-         ":SideEffectInterfaces",
-         ":Support",
-+        ":ToLLVMIRTranslation",
-         "//llvm:AsmParser",
-         "//llvm:Core",
-         "//llvm:Support",
-@@ -9212,8 +9267,9 @@
-         ":IR",
-         ":LLVMConversionIncGen",
-         ":LLVMDialect",
--        ":LLVMIRTransforms",
-         ":LLVMIntrinsicConversionIncGen",
-+        ":LLVMIRTransformsDIExpressionLegalization",
-+        ":LLVMIRTransformsLegalizeForExport",
-         ":OpenMPDialect",
-         ":Support",
-         ":TransformUtils",
+     tblgen = ":clang-tblgen",
+     td_file = "include/clang/Basic/Attr.td",
