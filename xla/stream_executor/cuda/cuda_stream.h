@@ -23,15 +23,16 @@ limitations under the License.
 #include <utility>
 #include <variant>
 
+#include "absl/base/thread_annotations.h"
 #include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/synchronization/mutex.h"
 #include "third_party/gpus/cuda/include/cuda.h"
 #include "xla/stream_executor/cuda/cuda_event.h"
 #include "xla/stream_executor/device_memory.h"
 #include "xla/stream_executor/event.h"
 #include "xla/stream_executor/event_based_timer.h"
-#include "xla/stream_executor/kernel.h"
 #include "xla/stream_executor/launch_dim.h"
 #include "xla/stream_executor/platform.h"
 #include "xla/stream_executor/stream.h"
@@ -98,6 +99,8 @@ class CudaStream : public StreamCommon {
   StreamExecutor* executor_;
   CudaEvent completed_event_;
   CUstream stream_handle_;
+  absl::Mutex mutex_;
+  int num_pending_host_callbacks_ ABSL_GUARDED_BY(mutex_) = 0;
 };
 }  // namespace gpu
 
