@@ -55,7 +55,7 @@ message WindowPrefetchDetail {
     int64 size = 2;
     // Unique identifier to distinguish the buffers that are associated with the
     // same operand.
-    int64 uid = 3;
+    int64 uid = 3 [deprecated = true];
   }
 
   repeated WindowDetail windows = 1;
